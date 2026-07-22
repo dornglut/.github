@@ -1,0 +1,14 @@
+README.md
+profile/README.md
+CONTRIBUTING.md
+SECURITY.md
+SUPPORT.md
+GOVERNANCE.md
+CODE_OF_CONDUCT.md
+PULL_REQUEST_TEMPLATE.md
+.github/ISSUE_TEMPLATE/bug.yml
+.github/ISSUE_TEMPLATE/feature.yml
+.github/ISSUE_TEMPLATE/architecture.yml
+.github/ISSUE_TEMPLATE/config.yml
+.github/workflows/validate.yml
+scripts/validate.py

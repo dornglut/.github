@@ -1,0 +1,38 @@
+name: Architecture decision
+description: Request a durable local or cross-repository decision
+title: "[Architecture] "
+labels: []
+body:
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision required
+      description: State the exact decision that must be made.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and evidence
+      description: Describe current authority, constraints, affected repositories, and observed pressure.
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options considered
+      description: Compare viable alternatives, including retaining the current design.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Ownership and boundaries
+      description: Identify which repository owns the decision and which adjacent areas must not change.
+    validations:
+      required: true
+  - type: textarea
+    id: consequences
+    attributes:
+      label: Consequences and migration
+      description: Record compatibility, validation, rollout, and reversal implications.
