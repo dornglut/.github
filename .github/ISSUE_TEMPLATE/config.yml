@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Private security report
-    url: https://github.com/dornglut/.github/security
-    about: Do not disclose suspected vulnerabilities in a public issue.
+  - name: Security reporting policy
+    url: https://github.com/dornglut/.github/security/policy
+    about: Review the private reporting instructions before disclosing a vulnerability.
