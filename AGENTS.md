@@ -1,10 +1,20 @@
 # Agent instructions
 
-Scope: organization-wide GitHub defaults only.
+Scope: organization-wide GitHub defaults and workflow templates only.
 
-- Do not place product architecture, implementation plans, release state, or generated project data here.
-- Keep defaults broadly applicable; repository-local files must be able to override them.
-- Keep CI read-only and limited to validating this repository.
-- Do not add organization secrets, deployment credentials, or write-enabled automation.
-- Update `validation-required-files.txt` whenever a required path changes.
-- Run `python scripts/validate.py` before proposing changes.
+Start with:
+
+1. `README.md` for inheritance boundaries;
+2. `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, and `GOVERNANCE.md` for public defaults;
+3. `.github/ISSUE_TEMPLATE/` and `PULL_REQUEST_TEMPLATE.md` for intake contracts;
+4. the accepted standards in `dornglut/engineering`.
+
+Rules:
+
+- do not place product architecture, implementation plans, release state, roadmaps, priorities, or generated Project data here;
+- keep defaults broadly applicable and conservative;
+- remember that a local issue-template directory replaces the organization suite rather than extending it;
+- keep validation read-only and limited to this repository;
+- do not add organization secrets, deployment credentials, source-writing automation, or floating reusable-workflow references;
+- update `validation-required-files.txt` whenever a required path changes;
+- run `python scripts/validate.py` before proposing changes.
