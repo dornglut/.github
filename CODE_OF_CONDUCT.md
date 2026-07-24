@@ -4,10 +4,26 @@ Dornglut expects technical collaboration to remain respectful, evidence-based, a
 
 Participants must:
 
-- discuss people and contributions without harassment, threats, discrimination, or personal attacks;
+- discuss people and contributions without harassment, threats, discrimination, intimidation, or personal attacks;
 - critique claims, designs, and changes rather than individuals;
+- avoid sustained disruption, spam, deliberate misrepresentation, and unwanted disclosure of private information;
 - disclose conflicts of interest that materially affect a decision;
-- respect security and privacy boundaries;
+- respect security, privacy, licensing, and attribution boundaries;
 - follow maintainer instructions intended to restore a productive discussion.
 
-Organization owners may edit, hide, lock, or remove disruptive content and may restrict participation when necessary. Reports should be made privately to an organization owner and should include relevant links or evidence.
+## Reporting
+
+Report conduct concerns privately to an organization owner. Include relevant links, dates, participants, and evidence. Do not use a public issue for sensitive personal or security information.
+
+Reports are handled with discretion, but confidentiality cannot be guaranteed when investigation, legal obligations, or immediate safety require limited disclosure.
+
+## Enforcement
+
+Depending on severity and history, organization owners may:
+
+- provide a private or public correction;
+- edit, hide, lock, or remove content;
+- restrict participation temporarily or permanently;
+- report credible threats, unlawful conduct, or platform abuse to the appropriate service or authority.
+
+Actions should be proportionate, documented privately when practical, and focused on protecting participants and restoring productive collaboration.
