@@ -1,0 +1,66 @@
+name: Proposal
+description: Propose a concrete capability, architecture, documentation, tooling, or research outcome
+title: "[Proposal] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for a concrete proposal. Undeveloped ideas should remain in the private Dornglut Inbox. Cross-repository policy or architecture belongs in dornglut/engineering.
+  - type: dropdown
+    id: proposal_type
+    attributes:
+      label: Proposal type
+      options:
+        - Capability
+        - Architecture
+        - Documentation
+        - Tooling
+        - Research
+    validations:
+      required: true
+  - type: input
+    id: repository
+    attributes:
+      label: Owning repository
+      description: Identify the repository that owns the behavior, or dornglut/engineering for a cross-repository decision.
+      placeholder: dornglut/repository
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Concrete problem
+      description: Describe the user, product, maintenance, or engineering problem that exists now.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: State the observable result or decision needed without prescribing unnecessary implementation details.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and motivation
+      description: Include examples, measurements, compatibility pressure, current authority, or related decisions.
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Scope and non-goals
+      description: Identify what belongs in this proposal, what remains excluded, and any affected repository boundaries.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues, roadmaps, and decision records.
+          required: true
+        - label: This proposal is filed in the repository that owns the outcome.
+          required: true
+        - label: This proposal is concrete enough for public investigation or decision; it is not only a raw idea.
+          required: true

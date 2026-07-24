@@ -1,12 +1,12 @@
 name: Defect
-description: Report reproducible incorrect behavior
+description: Report reproducible behavior that violates an existing contract
 title: "[Defect] "
 labels: []
 body:
   - type: markdown
     attributes:
       value: |
-        Report one reproducible defect. Security vulnerabilities must use private reporting.
+        Report one reproducible defect in the repository that owns the behavior. Do not disclose vulnerabilities, credentials, or private data here.
   - type: input
     id: repository_revision
     attributes:
@@ -26,21 +26,28 @@ body:
     id: expected
     attributes:
       label: Expected behavior
-      description: State the behavior required by current documentation or contracts.
+      description: State the behavior required by current documentation, tests, or public contracts.
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
       label: Reproduction
-      description: Provide the smallest deterministic reproduction and relevant environment details.
+      description: Provide the smallest deterministic reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include relevant platform, toolchain, configuration, and feature information.
     validations:
       required: true
   - type: textarea
     id: evidence
     attributes:
-      label: Evidence
-      description: Add logs, traces, screenshots, tests, or links without exposing secrets.
+      label: Evidence and impact
+      description: Add logs, traces, screenshots, tests, or links and explain the practical impact. Remove secrets and private data.
   - type: checkboxes
     id: checks
     attributes:
@@ -48,5 +55,7 @@ body:
       options:
         - label: I searched existing issues and pull requests.
           required: true
-        - label: This report does not disclose a security vulnerability.
+        - label: This report is filed in the repository that owns the behavior.
+          required: true
+        - label: This report does not disclose a security vulnerability, credential, or private data.
           required: true

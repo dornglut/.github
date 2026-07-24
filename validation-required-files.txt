@@ -1,4 +1,5 @@
 README.md
+AGENTS.md
 profile/README.md
 CONTRIBUTING.md
 SECURITY.md
@@ -6,9 +7,13 @@ SUPPORT.md
 GOVERNANCE.md
 CODE_OF_CONDUCT.md
 PULL_REQUEST_TEMPLATE.md
-.github/ISSUE_TEMPLATE/bug.yml
-.github/ISSUE_TEMPLATE/feature.yml
-.github/ISSUE_TEMPLATE/architecture.yml
 .github/ISSUE_TEMPLATE/config.yml
+.github/ISSUE_TEMPLATE/defect.yml
+.github/ISSUE_TEMPLATE/proposal.yml
 .github/workflows/validate.yml
+workflow-templates/documentation-validation.yml
+workflow-templates/documentation-validation.properties.json
+workflow-templates/rust-validation.yml
+workflow-templates/rust-validation.properties.json
 scripts/validate.py
+validation-required-files.txt

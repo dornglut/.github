@@ -1,8 +1,20 @@
 # Dornglut organization defaults
 
-This repository provides default contribution, security, support, issue, and pull-request guidance for repositories owned by the Dornglut organization.
+This repository supplies broadly applicable GitHub community-health defaults and workflow templates for repositories owned by the Dornglut organization.
 
-Repository-local files take precedence when a project needs stricter or domain-specific rules. Shared defaults must remain broadly applicable and must not redefine implementation behavior owned by a product repository.
+It does not own product behavior, architecture, validation semantics, releases, roadmaps, or live work state. Those remain with the repository responsible for the software.
+
+## Inheritance
+
+Repository-local community-health files override the corresponding organization default.
+
+Issue templates are a suite-level exception: when a repository contains a local `.github/ISSUE_TEMPLATE` directory, it must provide its complete accepted issue-template suite because GitHub does not merge that directory with the organization defaults.
+
+The normative organization model lives in:
+
+- [Dornglut authority and work](https://github.com/dornglut/engineering/blob/main/governance/authority-and-work.md);
+- [Dornglut GitHub standard](https://github.com/dornglut/engineering/blob/main/standards/github.md);
+- [Dornglut repository standard](https://github.com/dornglut/engineering/blob/main/standards/repositories.md).
 
 Canonical validation:
 
