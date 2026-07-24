@@ -1,20 +1,16 @@
 # Governance
 
-Dornglut separates shared organizational policy from repository implementation authority.
+This repository supplies public defaults. It is not the organization governance authority.
 
-## Authority order
+Dornglut's normative model is maintained in `dornglut/engineering`:
 
-1. code and tests define current behavior;
-2. the repository's canonical validation command defines its merge baseline;
-3. accepted repository decision records define durable local architecture;
-4. repository issues define active implementation work;
-5. [Dornglut Engineering](https://github.com/dornglut/engineering) defines cross-repository policy, shared architecture, and organization-level decisions;
-6. GitHub Projects may represent live priority, sequencing, and dates but do not replace durable decisions.
+- [Authority and work](https://github.com/dornglut/engineering/blob/main/governance/authority-and-work.md);
+- [GitHub standard](https://github.com/dornglut/engineering/blob/main/standards/github.md);
+- [Repository standard](https://github.com/dornglut/engineering/blob/main/standards/repositories.md);
+- [Validation standard](https://github.com/dornglut/engineering/blob/main/standards/validation.md).
 
-A more specific repository-local rule overrides this default when the two conflict.
+Each product or framework repository owns its implementation, public contracts, local architecture, roadmap, validation semantics, releases, and issues.
 
-## Ownership
+Organization defaults apply only when a repository is silent. A more specific accepted repository policy may override a default without changing organization-wide authority.
 
-Each repository owns its implementation, public API, release policy, validation semantics, and local roadmap. Organization repositories may provide defaults and orchestration, but they must not silently change product behavior.
-
-Organization owners administer access and policy. Merge authority remains repository-specific and should be protected by required validation and review rules appropriate to the repository's maturity.
+GitHub Projects represent operational priority and status. They do not replace code, repository issues, roadmaps, ADRs, or pull-request evidence.
