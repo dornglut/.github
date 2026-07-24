@@ -11,10 +11,4 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-      - name: Validate repository
-        run: python scripts/validate.py
+    uses: dornglut/github-workflows/.github/workflows/reusable-python-repository-validate.yml@79405c457b5b99d5cb9957c9bcdc475109e1e3bf
