@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEXT_SUFFIXES = {".md", ".yml", ".yaml", ".txt", ".py", ".json"}
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 FULL_SHA_RE = re.compile(r"@[0-9a-f]{40}(?:\s|$)")
-REUSABLE_REVISION = "79405c457b5b99d5cb9957c9bcdc475109e1e3bf"
+REUSABLE_REVISION = "b6caad377102ca73794efaf734a65903b8efa829"
 
 ISSUE_TEMPLATE_FILES = {
     ".github/ISSUE_TEMPLATE/config.yml",
