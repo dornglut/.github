@@ -1,0 +1,11 @@
+{
+  "name": "Dornglut Rust validation",
+  "description": "Run the repository-owned cargo validate baseline through Dornglut's reusable read-only workflow.",
+  "iconName": "octicon shield-check",
+  "categories": [
+    "Rust"
+  ],
+  "filePatterns": [
+    "^Cargo\\.toml$"
+  ]
+}
