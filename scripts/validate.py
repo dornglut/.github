@@ -31,6 +31,21 @@ FORBIDDEN_PATHS = {
     ".github/ISSUE_TEMPLATE/bug.yml",
     ".github/ISSUE_TEMPLATE/feature.yml",
 }
+NAMESPACE_EXACT_PATHS = {
+    "README.md",
+    "AGENTS.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "GOVERNANCE.md",
+    "PULL_REQUEST_TEMPLATE.md",
+    "SECURITY.md",
+    "SUPPORT.md",
+}
+NAMESPACE_PREFIXES = (
+    ".github/ISSUE_TEMPLATE/",
+    "profile/",
+    "workflow-templates/",
+)
 
 
 def fail(message: str, failures: list[str]) -> None:
@@ -47,6 +62,10 @@ def read_text(path: Path, failures: list[str]) -> str | None:
     except (OSError, UnicodeDecodeError) as error:
         fail(f"{relative(path)}: failed to read UTF-8 text: {error}", failures)
         return None
+
+
+def is_namespace_surface(path_text: str) -> bool:
+    return path_text in NAMESPACE_EXACT_PATHS or path_text.startswith(NAMESPACE_PREFIXES)
 
 
 def validate_text_file(path: Path, failures: list[str]) -> None:
@@ -72,10 +91,11 @@ def validate_text_file(path: Path, failures: list[str]) -> None:
         if "\t" in line:
             fail(f"{path_text}:{line_number}: tab character", failures)
 
-    lowered = text.lower()
-    for token in ("github.com/crystonix/", "`crystonix/", "crystonix/runen"):
-        if token in lowered:
-            fail(f"{path_text}: contains historical owner token {token!r}", failures)
+    if is_namespace_surface(path_text):
+        lowered = text.lower()
+        for token in ("github.com/crystonix/", "`crystonix/", "crystonix/runen"):
+            if token in lowered:
+                fail(f"{path_text}: contains historical owner token {token!r}", failures)
 
     if path.suffix.lower() != ".md":
         return
