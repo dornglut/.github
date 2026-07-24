@@ -1,0 +1,11 @@
+{
+  "name": "Dornglut documentation validation",
+  "description": "Run a repository-owned Python validation script through Dornglut's reusable read-only workflow.",
+  "iconName": "octicon shield-check",
+  "categories": [
+    "Python"
+  ],
+  "filePatterns": [
+    "^scripts/validate\\.py$"
+  ]
+}
