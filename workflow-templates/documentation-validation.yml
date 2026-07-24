@@ -1,0 +1,14 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - $default-branch
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: dornglut/github-workflows/.github/workflows/reusable-python-repository-validate.yml@79405c457b5b99d5cb9957c9bcdc475109e1e3bf
