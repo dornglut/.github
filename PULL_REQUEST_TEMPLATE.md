@@ -1,8 +1,11 @@
 ## Authority
 
 - Owning issue or decision:
-- Implementation base, when relevant:
-- Reviewed head or merge ref:
+- Accepted implementation base, when relevant:
+- Reviewed feature head:
+- Synthetic merge-result revision, only when separately validated:
+- Accepted squash merge, after merge:
+- Accepted-main push revision or run, when required:
 
 ## Outcome
 
@@ -22,7 +25,7 @@ Describe the completed outcome and why it belongs in this repository.
 
 ```text
 command:
-head:
+revision:
 result:
 ```
 

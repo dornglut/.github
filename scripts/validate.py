@@ -6,14 +6,16 @@ from __future__ import annotations
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 TEXT_SUFFIXES = {".md", ".yml", ".yaml", ".txt", ".py", ".json"}
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
-FULL_SHA_RE = re.compile(r"@[0-9a-f]{40}(?:\s|$)")
-REUSABLE_REVISION = "b6caad377102ca73794efaf734a65903b8efa829"
+FULL_SHA_RE = re.compile(r"@[0-9a-f]{40}$")
+REUSABLE_REVISION = "624cb41adeed21a6461eb838bc7330bd0a5079fd"
+REUSABLE_WORKFLOW_OWNER = "dornglut/github-workflows/.github/workflows"
 
 ISSUE_TEMPLATE_FILES = {
     ".github/ISSUE_TEMPLATE/config.yml",
@@ -26,6 +28,7 @@ WORKFLOW_TEMPLATE_FILES = {
     "workflow-templates/rust-validation.properties.json",
     "workflow-templates/rust-validation.yml",
 }
+ACTIVE_WORKFLOW_FILES = {".github/workflows/validate.yml"}
 FORBIDDEN_PATHS = {
     ".github/ISSUE_TEMPLATE/architecture.yml",
     ".github/ISSUE_TEMPLATE/bug.yml",
@@ -45,6 +48,55 @@ NAMESPACE_PREFIXES = (
     ".github/ISSUE_TEMPLATE/",
     "profile/",
     "workflow-templates/",
+)
+
+
+@dataclass(frozen=True)
+class WorkflowContract:
+    path: str
+    branch: str
+    reusable_workflow: str
+
+    @property
+    def reusable_reference(self) -> str:
+        return (
+            f"uses: {REUSABLE_WORKFLOW_OWNER}/"
+            f"{self.reusable_workflow}@{REUSABLE_REVISION}"
+        )
+
+    @property
+    def lines(self) -> tuple[str, ...]:
+        return (
+            "name: Validate",
+            "on:",
+            "  pull_request:",
+            "  push:",
+            "    branches:",
+            f"      - {self.branch}",
+            "permissions:",
+            "  contents: read",
+            "jobs:",
+            "  validate:",
+            f"    {self.reusable_reference}",
+        )
+
+
+WORKFLOW_CONTRACTS = (
+    WorkflowContract(
+        path=".github/workflows/validate.yml",
+        branch="main",
+        reusable_workflow="reusable-python-repository-validate.yml",
+    ),
+    WorkflowContract(
+        path="workflow-templates/documentation-validation.yml",
+        branch="$default-branch",
+        reusable_workflow="reusable-python-repository-validate.yml",
+    ),
+    WorkflowContract(
+        path="workflow-templates/rust-validation.yml",
+        branch="$default-branch",
+        reusable_workflow="reusable-rust-cargo-validate.yml",
+    ),
 )
 
 
@@ -208,8 +260,11 @@ def validate_public_contracts(failures: list[str]) -> None:
     require_tokens(
         "PULL_REQUEST_TEMPLATE.md",
         (
-            "Implementation base, when relevant:",
-            "Reviewed head or merge ref:",
+            "Accepted implementation base, when relevant:",
+            "Reviewed feature head:",
+            "Synthetic merge-result revision, only when separately validated:",
+            "Accepted squash merge, after merge:",
+            "Accepted-main push revision or run, when required:",
             "Repository profile or organization-policy exception:",
         ),
         failures,
@@ -263,49 +318,91 @@ def validate_issue_forms(failures: list[str]) -> None:
     )
 
 
-def validate_reusable_caller(path: str, workflow: str, default_branch: str, failures: list[str]) -> None:
-    file_path = ROOT / path
-    text = read_text(file_path, failures)
-    if text is None:
-        return
-
-    expected = (
-        "uses: dornglut/github-workflows/.github/workflows/"
-        f"{workflow}@{REUSABLE_REVISION}"
+def validate_active_workflow_inventory(failures: list[str]) -> None:
+    workflow_dir = ROOT / ".github" / "workflows"
+    active_workflows = (
+        {
+            relative(candidate)
+            for candidate in workflow_dir.iterdir()
+            if candidate.is_file() and candidate.suffix.lower() in {".yml", ".yaml"}
+        }
+        if workflow_dir.is_dir()
+        else set()
     )
-    if expected not in text:
-        fail(f"{path}: missing exact reusable workflow pin {expected!r}", failures)
+    if active_workflows != ACTIVE_WORKFLOW_FILES:
+        fail(
+            "active workflow inventory drift; "
+            f"expected {sorted(ACTIVE_WORKFLOW_FILES)}, found {sorted(active_workflows)}",
+            failures,
+        )
 
-    if default_branch not in text:
-        fail(f"{path}: missing default branch marker {default_branch!r}", failures)
 
-    if "permissions:\n  contents: read" not in text:
-        fail(f"{path}: must declare read-only contents permission", failures)
+def normalize_workflow_lines(text: str) -> tuple[str, ...]:
+    return tuple(line.rstrip() for line in text.splitlines() if line.strip())
 
-    for line in text.splitlines():
-        if "uses:" in line and not FULL_SHA_RE.search(line):
-            fail(f"{path}: workflow use is not pinned to a full commit SHA: {line.strip()}", failures)
+
+def workflow_contract_failures(
+    path: str, text: str, contract: WorkflowContract
+) -> list[str]:
+    lines = normalize_workflow_lines(text)
+    expected = contract.lines
+    failures: list[str] = []
+
+    if lines[:1] != expected[:1]:
+        failures.append(
+            f"{path}: workflow identity drift; expected {expected[0]!r}"
+        )
+
+    actual_events = lines[1:6]
+    expected_events = expected[1:6]
+    if actual_events != expected_events:
+        if expected[5] not in actual_events:
+            failures.append(
+                f"{path}: workflow branch drift; expected {expected[5]!r}"
+            )
+        failures.append(
+            f"{path}: workflow trigger drift; expected unconfigured pull_request "
+            f"and push for {contract.branch!r} only"
+        )
+
+    if lines[6:8] != expected[6:8]:
+        failures.append(
+            f"{path}: workflow permission drift; expected top-level contents: read only"
+        )
+
+    references = [line.strip() for line in lines if line.strip().startswith("uses:")]
+    if references != [contract.reusable_reference]:
+        for reference in references:
+            if not FULL_SHA_RE.search(reference):
+                failures.append(
+                    f"{path}: immutable revision drift; reusable workflow reference "
+                    f"is not pinned to a full commit SHA: {reference!r}"
+                )
+        failures.append(
+            f"{path}: workflow profile or immutable revision drift; "
+            f"expected {contract.reusable_reference!r}, found {references!r}"
+        )
+
+    if lines[8:] != expected[8:]:
+        failures.append(
+            f"{path}: workflow job drift; expected sole reusable job 'validate'"
+        )
+
+    if lines != expected:
+        unexpected = [line for line in lines if line not in expected]
+        if unexpected:
+            failures.append(
+                f"{path}: unexpected workflow field or ordering drift: {unexpected!r}"
+            )
+
+    return failures
 
 
 def validate_workflows(failures: list[str]) -> None:
-    validate_reusable_caller(
-        ".github/workflows/validate.yml",
-        "reusable-python-repository-validate.yml",
-        "- main",
-        failures,
-    )
-    validate_reusable_caller(
-        "workflow-templates/documentation-validation.yml",
-        "reusable-python-repository-validate.yml",
-        "- $default-branch",
-        failures,
-    )
-    validate_reusable_caller(
-        "workflow-templates/rust-validation.yml",
-        "reusable-rust-cargo-validate.yml",
-        "- $default-branch",
-        failures,
-    )
+    for contract in WORKFLOW_CONTRACTS:
+        text = read_text(ROOT / contract.path, failures)
+        if text is not None:
+            failures.extend(workflow_contract_failures(contract.path, text, contract))
 
 
 def validate_workflow_properties(failures: list[str]) -> None:
@@ -344,6 +441,7 @@ def main() -> int:
             validate_text_file(path, failures)
 
     validate_file_inventories(failures)
+    validate_active_workflow_inventory(failures)
     validate_public_contracts(failures)
     validate_issue_forms(failures)
     validate_workflows(failures)
