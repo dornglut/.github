@@ -19,5 +19,5 @@ The normative organization model lives in:
 Canonical validation:
 
 ```text
-python scripts/validate.py
+cargo validate
 ```

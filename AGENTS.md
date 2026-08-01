@@ -17,4 +17,4 @@ Rules:
 - keep validation read-only and limited to this repository;
 - do not add organization secrets, deployment credentials, source-writing automation, or floating reusable-workflow references;
 - update `validation-required-files.txt` whenever a required path changes;
-- run `python scripts/validate.py` before proposing changes.
+- run `cargo validate` before proposing changes.

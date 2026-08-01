@@ -15,5 +15,12 @@ workflow-templates/documentation-validation.yml
 workflow-templates/documentation-validation.properties.json
 workflow-templates/rust-validation.yml
 workflow-templates/rust-validation.properties.json
-scripts/validate.py
+.cargo/config.toml
+Cargo.toml
+Cargo.lock
+rust-toolchain.toml
+xtask/Cargo.toml
+xtask/src/lib.rs
+xtask/src/main.rs
+xtask/tests/validation.rs
 validation-required-files.txt
