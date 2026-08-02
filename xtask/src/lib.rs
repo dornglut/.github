@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
-const TEXT_SUFFIXES: &[&str] = &["json", "md", "toml", "txt", "yaml", "yml"];
+const TEXT_SUFFIXES: &[&str] = &["json", "md", "py", "toml", "txt", "yaml", "yml"];
 const REUSABLE_REVISION: &str = "624cb41adeed21a6461eb838bc7330bd0a5079fd";
 const REUSABLE_WORKFLOW_OWNER: &str = "dornglut/github-workflows/.github/workflows";
 const RETIRED_VALIDATOR_PATH: &str = "scripts/validate.py";
@@ -44,6 +44,14 @@ const NAMESPACE_PREFIXES: &[&str] = &[".github/ISSUE_TEMPLATE/", "profile/", "wo
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationErrors(Vec<String>);
+
+enum RepositoryPath {
+    Exists(fs::Metadata),
+    Missing,
+    Symlink,
+    Escapes,
+    Error(io::Error),
+}
 
 impl Display for ValidationErrors {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
@@ -195,17 +203,28 @@ fn validate_required_paths(root: &Path, errors: &mut Vec<String>) {
             continue;
         }
         let path = root.join(required);
-        match fs::metadata(&path) {
-            Ok(metadata) if metadata.is_file() && metadata.len() > 0 => {}
-            Ok(metadata) if metadata.is_file() => {
+        match inspect_repository_path(root, &path) {
+            RepositoryPath::Exists(metadata) if metadata.is_file() && metadata.len() > 0 => {}
+            RepositoryPath::Exists(metadata) if metadata.is_file() => {
                 errors.push(format!("{required}: required file is empty"))
             }
-            _ => errors.push(format!("{required}: required file is missing")),
+            RepositoryPath::Symlink | RepositoryPath::Escapes => {
+                errors.push(format!("{required}: symbolic links are not permitted"))
+            }
+            RepositoryPath::Error(error) => {
+                errors.push(format!("{required}: failed to inspect path: {error}"))
+            }
+            RepositoryPath::Exists(_) | RepositoryPath::Missing => {
+                errors.push(format!("{required}: required file is missing"))
+            }
         }
     }
 
     for forbidden in FORBIDDEN_PATHS {
-        if root.join(forbidden).exists() {
+        if !matches!(
+            inspect_repository_path(root, &root.join(forbidden)),
+            RepositoryPath::Missing
+        ) {
             let reason = if *forbidden == RETIRED_VALIDATOR_PATH {
                 "retired Python validator must not exist"
             } else {
@@ -274,7 +293,14 @@ fn collect_files(
                 continue;
             }
         };
-        if metadata.is_file() {
+        if metadata.file_type().is_symlink() {
+            match relative_path(root, &path) {
+                Ok(relative) => {
+                    errors.push(format!("{relative}: symbolic links are not permitted"))
+                }
+                Err(()) => errors.push(format!("{}: unsupported path encoding", path.display())),
+            }
+        } else if metadata.is_file() {
             files.push(path);
         } else if metadata.is_dir() {
             collect_files(root, &path, files, errors);
@@ -296,10 +322,21 @@ fn is_text_path(path: &Path) -> bool {
 }
 
 fn validate_text_file(root: &Path, path: &Path, relative: &str, errors: &mut Vec<String>) {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            errors.push(format!("{relative}: failed to read text: {error}"));
+    let bytes = match inspect_repository_path(root, path) {
+        RepositoryPath::Exists(metadata) if metadata.is_file() => match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                errors.push(format!("{relative}: failed to read text: {error}"));
+                return;
+            }
+        },
+        RepositoryPath::Symlink | RepositoryPath::Escapes => {
+            errors.push(format!("{relative}: symbolic links are not permitted"));
+            return;
+        }
+        RepositoryPath::Missing | RepositoryPath::Exists(_) => return,
+        RepositoryPath::Error(error) => {
+            errors.push(format!("{relative}: failed to inspect path: {error}"));
             return;
         }
     };
@@ -368,14 +405,29 @@ fn validate_markdown_links(
         if target.is_empty() || target.starts_with('#') || is_external_target(target) {
             continue;
         }
-        let decoded = percent_decode(target);
-        let file_target = decoded.split(['#', '?']).next().unwrap_or_default();
+        let file_target = target.split(['#', '?']).next().unwrap_or_default();
         if file_target.is_empty() {
             continue;
         }
-        match resolve_repository_path(root, path.parent().unwrap_or(root), file_target) {
-            Ok(resolved) if resolved.exists() => {}
-            Ok(_) => errors.push(format!("{relative}: broken relative link: {raw_target}")),
+        let decoded = percent_decode(file_target);
+        match resolve_repository_path(root, path.parent().unwrap_or(root), &decoded) {
+            Ok(resolved) => match inspect_repository_path(root, &resolved) {
+                RepositoryPath::Exists(_) => {}
+                RepositoryPath::Escapes => {
+                    errors.push(format!("{relative}: link escapes repository: {raw_target}"))
+                }
+                RepositoryPath::Symlink => errors.push(format!(
+                    "{}: symbolic links are not permitted",
+                    relative_path(root, &resolved)
+                        .unwrap_or_else(|()| resolved.display().to_string())
+                )),
+                RepositoryPath::Missing => {
+                    errors.push(format!("{relative}: broken relative link: {raw_target}"))
+                }
+                RepositoryPath::Error(error) => errors.push(format!(
+                    "{relative}: failed to inspect relative link {raw_target}: {error}"
+                )),
+            },
             Err(()) => errors.push(format!("{relative}: link escapes repository: {raw_target}")),
         }
     }
@@ -397,7 +449,7 @@ fn markdown_link_targets(text: &str) -> Vec<&str> {
             continue;
         };
         let label_end = label_start + label_end_offset;
-        if label_end == label_start || bytes.get(label_end + 1) != Some(&b'(') {
+        if bytes.get(label_end + 1) != Some(&b'(') {
             index += 1;
             continue;
         }
@@ -414,6 +466,52 @@ fn markdown_link_targets(text: &str) -> Vec<&str> {
         index = target_end + 1;
     }
     targets
+}
+
+fn inspect_repository_path(root: &Path, path: &Path) -> RepositoryPath {
+    let canonical_root = match root.canonicalize() {
+        Ok(root) => root,
+        Err(error) => return RepositoryPath::Error(error),
+    };
+    let relative = match path.strip_prefix(root) {
+        Ok(relative) => relative,
+        Err(_) => return RepositoryPath::Escapes,
+    };
+    let mut candidate = root.to_path_buf();
+    for component in relative.components() {
+        match component {
+            Component::CurDir => continue,
+            Component::Normal(segment) => candidate.push(segment),
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir => {
+                return RepositoryPath::Escapes;
+            }
+        }
+        let metadata = match fs::symlink_metadata(&candidate) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return RepositoryPath::Missing;
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotADirectory => {
+                return RepositoryPath::Missing;
+            }
+            Err(error) => return RepositoryPath::Error(error),
+        };
+        if metadata.file_type().is_symlink() {
+            return match candidate.canonicalize() {
+                Ok(target) if target.starts_with(&canonical_root) => RepositoryPath::Symlink,
+                Ok(_) => RepositoryPath::Escapes,
+                Err(_) => RepositoryPath::Symlink,
+            };
+        }
+        if candidate == path {
+            return RepositoryPath::Exists(metadata);
+        }
+    }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => RepositoryPath::Exists(metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => RepositoryPath::Missing,
+        Err(error) => RepositoryPath::Error(error),
+    }
 }
 
 fn is_external_target(target: &str) -> bool {
@@ -530,6 +628,22 @@ fn files_directly_below(
     errors: &mut Vec<String>,
 ) -> BTreeSet<String> {
     let directory = root.join(relative_directory);
+    match inspect_repository_path(root, &directory) {
+        RepositoryPath::Exists(metadata) if metadata.is_dir() => {}
+        RepositoryPath::Symlink | RepositoryPath::Escapes => {
+            errors.push(format!(
+                "{relative_directory}: symbolic links are not permitted"
+            ));
+            return BTreeSet::new();
+        }
+        RepositoryPath::Missing | RepositoryPath::Exists(_) => return BTreeSet::new(),
+        RepositoryPath::Error(error) => {
+            errors.push(format!(
+                "{relative_directory}: failed to inspect path: {error}"
+            ));
+            return BTreeSet::new();
+        }
+    }
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
         Err(_) => return BTreeSet::new(),
@@ -537,7 +651,26 @@ fn files_directly_below(
     let mut paths = BTreeSet::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if !path.is_file() {
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                errors.push(format!(
+                    "{}: failed to inspect path: {error}",
+                    path.display()
+                ));
+                continue;
+            }
+        };
+        if metadata.file_type().is_symlink() {
+            match relative_path(root, &path) {
+                Ok(relative) => {
+                    errors.push(format!("{relative}: symbolic links are not permitted"))
+                }
+                Err(()) => errors.push(format!("{}: unsupported path encoding", path.display())),
+            }
+            continue;
+        }
+        if !metadata.is_file() {
             continue;
         }
         if let Some(extensions) = extensions {
@@ -707,7 +840,10 @@ fn workflow_contract_failures(
         ));
     }
     if lines.get(1..6) != Some(&expected[1..6]) {
-        if !lines[1..lines.len().min(6)].contains(&expected[5]) {
+        if !lines
+            .get(1..6)
+            .is_some_and(|trigger| trigger.contains(&expected[5]))
+        {
             errors.push(format!(
                 "{path}: workflow branch drift; expected {:?}",
                 expected[5]
@@ -760,6 +896,20 @@ fn has_full_sha(reference: &str) -> bool {
 
 fn validate_workflow_properties(root: &Path, errors: &mut Vec<String>) {
     let directory = root.join("workflow-templates");
+    match inspect_repository_path(root, &directory) {
+        RepositoryPath::Exists(metadata) if metadata.is_dir() => {}
+        RepositoryPath::Symlink | RepositoryPath::Escapes => {
+            errors.push("workflow-templates: symbolic links are not permitted".to_owned());
+            return;
+        }
+        RepositoryPath::Missing | RepositoryPath::Exists(_) => return,
+        RepositoryPath::Error(error) => {
+            errors.push(format!(
+                "workflow-templates: failed to inspect path: {error}"
+            ));
+            return;
+        }
+    }
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
         Err(_) => return,
@@ -779,8 +929,7 @@ fn validate_workflow_properties(root: &Path, errors: &mut Vec<String>) {
             errors.push(format!("{}: unsupported path encoding", path.display()));
             continue;
         };
-        let value = match fs::read_to_string(&path)
-            .ok()
+        let value = match read_utf8(&path, root, errors)
             .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         {
             Some(value) => value,
@@ -822,7 +971,8 @@ fn validate_workflow_properties(root: &Path, errors: &mut Vec<String>) {
                 .to_owned()
                 + ".yml",
         );
-        if !workflow.is_file() {
+        if !matches!(inspect_repository_path(root, &workflow), RepositoryPath::Exists(metadata) if metadata.is_file())
+        {
             errors.push(format!("{relative}: matching workflow template is missing"));
         }
     }
@@ -830,16 +980,32 @@ fn validate_workflow_properties(root: &Path, errors: &mut Vec<String>) {
 
 fn read_utf8(path: &Path, root: &Path, errors: &mut Vec<String>) -> Option<String> {
     let relative = relative_path(root, path).unwrap_or_else(|()| path.display().to_string());
-    match fs::read(path) {
-        Ok(bytes) => match String::from_utf8(bytes) {
-            Ok(text) => Some(text),
-            Err(_) => {
-                errors.push(format!("{relative}: failed to read UTF-8 text"));
+    match inspect_repository_path(root, path) {
+        RepositoryPath::Exists(metadata) if metadata.is_file() => match fs::read(path) {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(text) => Some(text),
+                Err(_) => {
+                    errors.push(format!("{relative}: failed to read UTF-8 text"));
+                    None
+                }
+            },
+            Err(error) => {
+                errors.push(format!("{relative}: failed to read UTF-8 text: {error}"));
                 None
             }
         },
-        Err(error) => {
-            errors.push(format!("{relative}: failed to read UTF-8 text: {error}"));
+        RepositoryPath::Symlink | RepositoryPath::Escapes => {
+            errors.push(format!("{relative}: symbolic links are not permitted"));
+            None
+        }
+        RepositoryPath::Missing | RepositoryPath::Exists(_) => {
+            errors.push(format!(
+                "{relative}: failed to read UTF-8 text: file is missing"
+            ));
+            None
+        }
+        RepositoryPath::Error(error) => {
+            errors.push(format!("{relative}: failed to inspect path: {error}"));
             None
         }
     }
