@@ -1,6 +1,8 @@
+use std::ffi::OsString;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static FIXTURE_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
@@ -19,7 +21,8 @@ impl Fixture {
         ));
         fs::create_dir_all(&root).unwrap();
 
-        copy_tracked_files(source, &root);
+        copy_tracked_files(source, &root).unwrap();
+        initialize_fixture_repository(&root);
         Self { root }
     }
 
@@ -41,10 +44,27 @@ impl Fixture {
     }
 
     fn failure(&self) -> String {
-        xtask::validate_repository(&self.root)
-            .unwrap_err()
-            .to_string()
+        self.validation_result().unwrap_err().to_string()
     }
+
+    fn validation_result(&self) -> Result<(), xtask::ValidationErrors> {
+        xtask::validate_repository(&self.root)
+    }
+}
+
+fn initialize_fixture_repository(root: &Path) {
+    let status = Command::new("git")
+        .args(["init", "--quiet"])
+        .current_dir(root)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git init failed: {status}");
+    let status = Command::new("git")
+        .args(["add", "--all"])
+        .current_dir(root)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git add failed: {status}");
 }
 
 impl Drop for Fixture {
@@ -315,7 +335,100 @@ fn symlinked_markdown_parent_directory_is_rejected() {
     fixture.write("notes/link.md", b"[target](linked/target.md)\n");
     assert_contains(
         fixture.failure(),
-        "notes/linked/target.md: symbolic links are not permitted",
+        "notes/link.md: symbolic links are not permitted: linked/target.md",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn external_parent_symlink_cannot_be_erased_by_parent_traversal() {
+    let fixture = Fixture::current_repository();
+    let outside = std::env::temp_dir().join(format!(
+        "dornglut-external-parent-symlink-{}",
+        FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&outside).unwrap();
+    fixture.write("notes/safe.md", b"safe\n");
+    fixture.symlink("notes/linked", &outside);
+    fixture.write("notes/link.md", b"[safe](linked/../safe.md)\n");
+
+    assert_contains(
+        fixture.failure(),
+        "notes/link.md: link escapes repository: linked/../safe.md",
+    );
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn in_repository_parent_symlink_cannot_be_erased_by_parent_traversal() {
+    let fixture = Fixture::current_repository();
+    fixture.write("notes/targets/target.md", b"target\n");
+    fixture.write("notes/safe.md", b"safe\n");
+    fixture.symlink("notes/linked", Path::new("targets"));
+    fixture.write("notes/link.md", b"[safe](linked/../safe.md)\n");
+
+    assert_contains(
+        fixture.failure(),
+        "notes/link.md: symbolic links are not permitted: linked/../safe.md",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn broken_parent_symlink_has_a_source_link_diagnostic() {
+    let fixture = Fixture::current_repository();
+    fixture.symlink("notes/linked", Path::new("missing"));
+    fixture.write("notes/link.md", b"[safe](linked/../safe.md)\n");
+
+    assert_contains(
+        fixture.failure(),
+        "notes/link.md: symbolic links are not permitted: linked/../safe.md",
+    );
+}
+
+#[test]
+fn ordinary_parent_traversal_remains_a_valid_relative_link() {
+    let fixture = Fixture::current_repository();
+    fixture.write("notes/directory/placeholder.md", b"placeholder\n");
+    fixture.write("notes/safe.md", b"safe\n");
+    fixture.write("notes/link.md", b"[safe](directory/../safe.md)\n");
+
+    assert!(xtask::validate_repository(&fixture.root).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn nested_external_parent_symlink_reports_a_repository_escape() {
+    let fixture = Fixture::current_repository();
+    let outside = std::env::temp_dir().join(format!(
+        "dornglut-nested-external-parent-symlink-{}",
+        FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&outside).unwrap();
+    fixture.write("notes/nested/inside.md", b"inside\n");
+    fixture.symlink("notes/nested/linked", &outside);
+    fixture.write("notes/link.md", b"[safe](nested/linked/../inside.md)\n");
+
+    assert_contains(
+        fixture.failure(),
+        "notes/link.md: link escapes repository: nested/linked/../inside.md",
+    );
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
+fn encoded_parent_traversal_is_rejected_after_decoding() {
+    let fixture = Fixture::current_repository();
+    fixture.write("notes/directory/placeholder.md", b"placeholder\n");
+    fixture.write(
+        "notes/link.md",
+        b"[escape](directory/%2E%2E/%2E%2E/%2E%2E/outside.md)\n",
+    );
+
+    assert_contains(
+        fixture.failure(),
+        "notes/link.md: link escapes repository: directory/%2E%2E/%2E%2E/%2E%2E/outside.md",
     );
 }
 
@@ -345,7 +458,7 @@ fn broken_symlink_markdown_target_is_rejected() {
     fixture.write("notes/link.md", b"[broken](broken.md)\n");
     assert_contains(
         fixture.failure(),
-        "notes/broken.md: symbolic links are not permitted",
+        "notes/link.md: symbolic links are not permitted: broken.md",
     );
 }
 
@@ -446,54 +559,99 @@ fn malformed_workflows_are_rejected_without_panicking() {
     struct Case {
         name: &'static str,
         workflow: &'static [u8],
-        expected: &'static str,
+        required_diagnostics: &'static [&'static str],
     }
 
     for case in [
         Case {
             name: "empty",
             workflow: b"",
-            expected: "workflow identity drift",
+            required_diagnostics: &["workflow identity drift", "workflow trigger drift"],
         },
         Case {
             name: "whitespace only",
             workflow: b" \n\t\n",
-            expected: "workflow identity drift",
+            required_diagnostics: &["workflow identity drift", "workflow job drift"],
         },
         Case {
             name: "name only",
             workflow: b"name: Validate\n",
-            expected: "workflow trigger drift",
+            required_diagnostics: &["workflow trigger drift", "workflow permission drift"],
+        },
+        Case {
+            name: "trigger only",
+            workflow: b"name: Validate\non:\n  pull_request:\n  push:\n    branches:\n      - main\n",
+            required_diagnostics: &["workflow permission drift", "workflow job drift"],
+        },
+        Case {
+            name: "jobs only",
+            workflow: b"name: Validate\non:\n  pull_request:\n  push:\n    branches:\n      - main\npermissions:\n  contents: read\njobs:\n",
+            required_diagnostics: &["workflow job drift", "workflow profile or immutable revision drift"],
         },
         Case {
             name: "truncated trigger",
             workflow: b"name: Validate\non:\n  pull_request:\n  push:\n",
-            expected: "workflow branch drift",
+            required_diagnostics: &["workflow branch drift", "workflow trigger drift"],
         },
         Case {
             name: "truncated permissions",
             workflow: b"name: Validate\non:\n  pull_request:\n  push:\n    branches:\n      - main\npermissions:\n",
-            expected: "workflow permission drift",
+            required_diagnostics: &["workflow permission drift", "workflow job drift"],
         },
         Case {
-            name: "truncated job",
+            name: "truncated reusable job",
             workflow: b"name: Validate\non:\n  pull_request:\n  push:\n    branches:\n      - main\npermissions:\n  contents: read\n",
-            expected: "workflow job drift",
+            required_diagnostics: &["workflow job drift", "workflow profile or immutable revision drift"],
         },
         Case {
-            name: "unexpected field",
+            name: "unexpected top-level field",
             workflow: b"name: Validate\non:\n  pull_request:\n  push:\n    branches:\n      - main\npermissions:\n  contents: read\njobs:\n  validate:\n    uses: dornglut/github-workflows/.github/workflows/reusable-rust-cargo-validate.yml@624cb41adeed21a6461eb838bc7330bd0a5079fd\ntimeout-minutes: 5\n",
-            expected: "unexpected workflow field or ordering drift",
+            required_diagnostics: &["unexpected workflow field or ordering drift"],
+        },
+        Case {
+            name: "unexpected job field",
+            workflow: b"name: Validate\non:\n  pull_request:\n  push:\n    branches:\n      - main\npermissions:\n  contents: read\njobs:\n  validate:\n    runs-on: ubuntu-latest\n    uses: dornglut/github-workflows/.github/workflows/reusable-rust-cargo-validate.yml@624cb41adeed21a6461eb838bc7330bd0a5079fd\n",
+            required_diagnostics: &["unexpected workflow field or ordering drift", "workflow job drift"],
         },
     ] {
         let fixture = Fixture::current_repository();
         fixture.write(".github/workflows/validate.yml", case.workflow);
-        let failure = fixture.failure();
+        assert_malformed_workflow(&fixture, case.name, case.required_diagnostics);
+    }
+}
+
+fn assert_malformed_workflow(fixture: &Fixture, name: &str, required_diagnostics: &[&str]) {
+    let first =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fixture.validation_result()))
+            .unwrap_or_else(|payload| panic!("{name} panicked: {}", panic_message(payload)))
+            .expect_err("malformed workflow must return ValidationErrors")
+            .to_string();
+    let second =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fixture.validation_result()))
+            .unwrap_or_else(|payload| {
+                panic!(
+                    "{name} panicked on repeated validation: {}",
+                    panic_message(payload)
+                )
+            })
+            .expect_err("malformed workflow must remain invalid")
+            .to_string();
+
+    assert_eq!(first, second, "{name} diagnostics must be deterministic");
+    let workflow_diagnostics = first
+        .lines()
+        .filter(|line| line.starts_with("- .github/workflows/validate.yml:"))
+        .collect::<Vec<_>>();
+    assert!(
+        !workflow_diagnostics.is_empty(),
+        "{name} must report the exact workflow path:\n{first}"
+    );
+    for diagnostic in required_diagnostics {
         assert!(
-            failure.contains(case.expected),
-            "{} should report {:?}, got:\n{failure}",
-            case.name,
-            case.expected
+            workflow_diagnostics
+                .iter()
+                .any(|line| line.contains(diagnostic)),
+            "{name} must report {diagnostic:?}:\n{first}"
         );
     }
 }
@@ -545,58 +703,238 @@ fn reintroduced_python_validator_is_rejected() {
     );
 }
 
-fn copy_tracked_files(source: &Path, root: &Path) {
-    let output = Command::new("git")
-        .args(["ls-files", "-z"])
-        .current_dir(source)
-        .output()
-        .expect("git must be available for validation fixtures");
-    assert!(output.status.success(), "git ls-files failed: {output:?}");
-    let mut paths = output
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-        .map(|path| PathBuf::from(std::ffi::OsString::from_vec(path.to_vec())))
-        .collect::<Vec<_>>();
-    paths.sort();
-    for relative in paths {
-        copy_regular_file(&source.join(&relative), &root.join(relative));
-    }
+#[derive(Debug)]
+struct TrackedBlob {
+    path: PathBuf,
+    object_id: String,
 }
 
-fn copy_regular_file(source: &Path, destination: &Path) {
-    let metadata = fs::symlink_metadata(source).unwrap();
-    assert!(
-        !metadata.file_type().is_symlink(),
-        "fixture source path {} is a symbolic link",
-        source.display()
-    );
-    if !metadata.is_file() {
-        return;
+fn copy_tracked_files(source: &Path, root: &Path) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(["ls-files", "--stage", "-z"])
+        .current_dir(source)
+        .output()
+        .map_err(|error| format!("git must be available for validation fixtures: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git ls-files --stage failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
-    fs::create_dir_all(destination.parent().unwrap()).unwrap();
-    fs::copy(source, destination).unwrap();
+    let mut entries = output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .map(parse_tracked_blob)
+        .collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+    let object_ids = entries
+        .iter()
+        .map(|entry| entry.object_id.as_str())
+        .collect::<Vec<_>>();
+    let contents = read_git_blobs(source, &object_ids)?;
+    for (entry, bytes) in entries.iter().zip(contents) {
+        let destination = root.join(&entry.path);
+        let parent = destination.parent().ok_or_else(|| {
+            format!(
+                "fixture destination has no parent: {}",
+                destination.display()
+            )
+        })?;
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+        fs::write(&destination, bytes)
+            .map_err(|error| format!("failed to write {}: {error}", destination.display()))?;
+    }
+    Ok(())
+}
+
+fn parse_tracked_blob(record: &[u8]) -> Result<TrackedBlob, String> {
+    let Some(separator) = record.iter().position(|byte| *byte == b'\t') else {
+        return Err("malformed git index record without a path separator".to_owned());
+    };
+    let (header, raw_path) = (&record[..separator], &record[separator + 1..]);
+    let fields = header.split(|byte| *byte == b' ').collect::<Vec<_>>();
+    if fields.len() != 3 || fields.iter().any(|field| field.is_empty()) {
+        return Err("malformed git index record header".to_owned());
+    }
+    let mode = std::str::from_utf8(fields[0])
+        .map_err(|_| "git index mode is not valid UTF-8".to_owned())?;
+    if mode == "120000" {
+        return Err("fixture source contains a symbolic link".to_owned());
+    }
+    if !matches!(mode, "100644" | "100755") {
+        return Err(format!(
+            "fixture source contains unsupported git mode {mode:?}"
+        ));
+    }
+    let object_id = std::str::from_utf8(fields[1])
+        .map_err(|_| "git object ID is not valid UTF-8".to_owned())?;
+    if !(object_id.len() == 40 || object_id.len() == 64)
+        || !object_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(format!("invalid git object ID {object_id:?}"));
+    }
+    if fields[2] != b"0" {
+        return Err("fixture source index contains an unresolved merge stage".to_owned());
+    }
+    let path = path_from_git_bytes(raw_path)?;
+    if path.as_os_str().is_empty()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::Prefix(_)
+                    | std::path::Component::RootDir
+                    | std::path::Component::ParentDir
+            )
+        })
+    {
+        return Err("fixture source contains an invalid tracked path".to_owned());
+    }
+    Ok(TrackedBlob {
+        path,
+        object_id: object_id.to_owned(),
+    })
+}
+
+fn read_git_blobs(source: &Path, object_ids: &[&str]) -> Result<Vec<Vec<u8>>, String> {
+    let mut child = Command::new("git")
+        .args(["cat-file", "--batch"])
+        .current_dir(source)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to start git cat-file: {error}"))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "git cat-file did not provide standard input".to_owned())?;
+    for object_id in object_ids {
+        stdin
+            .write_all(object_id.as_bytes())
+            .and_then(|()| stdin.write_all(b"\n"))
+            .map_err(|error| format!("failed to request git blob {object_id}: {error}"))?;
+    }
+    drop(stdin);
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("failed to read git cat-file output: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git cat-file --batch failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let mut offset = 0;
+    let mut blobs = Vec::with_capacity(object_ids.len());
+    for expected_object_id in object_ids {
+        let header_end = output.stdout[offset..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|index| offset + index)
+            .ok_or_else(|| "truncated git cat-file header".to_owned())?;
+        let header = std::str::from_utf8(&output.stdout[offset..header_end])
+            .map_err(|_| "git cat-file header is not valid UTF-8".to_owned())?;
+        let fields = header.split_whitespace().collect::<Vec<_>>();
+        if fields.len() != 3 || fields[0] != *expected_object_id || fields[1] != "blob" {
+            return Err(format!("unexpected git cat-file response {header:?}"));
+        }
+        let size = fields[2]
+            .parse::<usize>()
+            .map_err(|_| format!("invalid git blob size in {header:?}"))?;
+        let contents_start = header_end + 1;
+        let contents_end = contents_start
+            .checked_add(size)
+            .ok_or_else(|| "git blob size overflow".to_owned())?;
+        if output.stdout.get(contents_end) != Some(&b'\n') {
+            return Err("truncated git blob contents".to_owned());
+        }
+        blobs.push(output.stdout[contents_start..contents_end].to_vec());
+        offset = contents_end + 1;
+    }
+    if offset != output.stdout.len() {
+        return Err("unexpected trailing git cat-file output".to_owned());
+    }
+    Ok(blobs)
+}
+
+#[cfg(unix)]
+fn path_from_git_bytes(bytes: &[u8]) -> Result<PathBuf, String> {
+    use std::os::unix::ffi::OsStringExt;
+
+    Ok(PathBuf::from(OsString::from_vec(bytes.to_vec())))
+}
+
+#[cfg(not(unix))]
+fn path_from_git_bytes(bytes: &[u8]) -> Result<PathBuf, String> {
+    let value = std::str::from_utf8(bytes)
+        .map_err(|_| "Git path is not valid UTF-8 on this platform".to_owned())?;
+    Ok(PathBuf::from(value))
+}
+
+fn initialize_temporary_git_repository(root: &Path) {
+    fs::create_dir_all(root).unwrap();
+    initialize_fixture_repository(root);
+}
+
+#[test]
+fn fixture_copy_materializes_indexed_git_blobs_instead_of_worktree_paths() {
+    let source = temporary_path("dornglut-fixture-blob-source");
+    let destination = temporary_path("dornglut-fixture-blob-destination");
+    initialize_temporary_git_repository(&source);
+    fs::write(source.join("tracked.md"), b"indexed blob\n").unwrap();
+    let status = Command::new("git")
+        .args(["add", "tracked.md"])
+        .current_dir(&source)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git add failed: {status}");
+    fs::write(source.join("tracked.md"), b"worktree mutation\n").unwrap();
+
+    copy_tracked_files(&source, &destination).unwrap();
+    assert_eq!(
+        fs::read(destination.join("tracked.md")).unwrap(),
+        b"indexed blob\n"
+    );
+
+    fs::remove_dir_all(source).unwrap();
+    fs::remove_dir_all(destination).unwrap();
 }
 
 #[cfg(unix)]
 #[test]
-fn fixture_copy_rejects_source_symlinks_without_following_them() {
-    let source_root = std::env::temp_dir().join(format!(
-        "dornglut-fixture-source-symlink-{}",
-        FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    ));
-    let target = source_root.with_extension("target");
-    let destination = source_root.with_extension("destination");
-    fs::write(&target, b"outside fixture source\n").unwrap();
-    std::os::unix::fs::symlink(&target, &source_root).unwrap();
+fn fixture_copy_rejects_indexed_source_symlinks_without_following_them() {
+    let source = temporary_path("dornglut-fixture-symlink-source");
+    let destination = temporary_path("dornglut-fixture-symlink-destination");
+    initialize_temporary_git_repository(&source);
+    fs::write(source.join("target.md"), b"target\n").unwrap();
+    std::os::unix::fs::symlink("target.md", source.join("alias.md")).unwrap();
+    let status = Command::new("git")
+        .args(["add", "target.md", "alias.md"])
+        .current_dir(&source)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git add failed: {status}");
 
-    let failure = std::panic::catch_unwind(|| copy_regular_file(&source_root, &destination))
-        .expect_err("fixture copying must reject source symlinks");
-    assert_contains(panic_message(failure), "fixture source path");
+    assert_contains(
+        copy_tracked_files(&source, &destination).unwrap_err(),
+        "fixture source contains a symbolic link",
+    );
     assert!(!destination.exists());
 
-    fs::remove_file(source_root).unwrap();
-    fs::remove_file(target).unwrap();
+    fs::remove_dir_all(source).unwrap();
+}
+
+fn temporary_path(prefix: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "{prefix}-{}-{}",
+        std::process::id(),
+        FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ))
 }
 
 fn replace(path: &Path, from: &str, to: &str) {
@@ -621,25 +959,4 @@ fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
         return (*message).to_owned();
     }
     "non-string panic payload".to_owned()
-}
-
-trait OsStringFromVec {
-    fn from_vec(value: Vec<u8>) -> Self;
-}
-
-#[cfg(unix)]
-impl OsStringFromVec for std::ffi::OsString {
-    fn from_vec(value: Vec<u8>) -> Self {
-        use std::os::unix::ffi::OsStringExt;
-        <Self as OsStringExt>::from_vec(value)
-    }
-}
-
-#[cfg(not(unix))]
-impl OsStringFromVec for std::ffi::OsString {
-    fn from_vec(value: Vec<u8>) -> Self {
-        String::from_utf8(value)
-            .expect("Git path must use UTF-8 on this platform")
-            .into()
-    }
 }

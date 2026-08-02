@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Output};
 
 const TEXT_SUFFIXES: &[&str] = &["json", "md", "py", "toml", "txt", "yaml", "yml"];
 const REUSABLE_REVISION: &str = "624cb41adeed21a6461eb838bc7330bd0a5079fd";
@@ -143,7 +143,25 @@ pub fn run_validation() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn validate_repository(root: &Path) -> Result<(), ValidationErrors> {
+    validate_repository_with_after_snapshot(root, || {})
+}
+
+fn validate_repository_with_after_snapshot<F>(
+    root: &Path,
+    after_snapshot: F,
+) -> Result<(), ValidationErrors>
+where
+    F: FnOnce(),
+{
     let mut errors = Vec::new();
+    let initial_fingerprint = match worktree_fingerprint(root) {
+        Ok(fingerprint) => Some(fingerprint),
+        Err(error) => {
+            errors.push(format!("failed to capture repository state: {error}"));
+            None
+        }
+    };
+    after_snapshot();
     validate_required_paths(root, &mut errors);
     validate_text_files(root, &mut errors);
     validate_file_inventories(root, &mut errors);
@@ -152,12 +170,53 @@ pub fn validate_repository(root: &Path) -> Result<(), ValidationErrors> {
     validate_workflows(root, &mut errors);
     validate_workflow_properties(root, &mut errors);
 
+    if let Some(initial_fingerprint) = initial_fingerprint {
+        match worktree_fingerprint(root) {
+            Ok(final_fingerprint) if final_fingerprint != initial_fingerprint => {
+                errors.push("repository changed during validation".to_owned());
+            }
+            Ok(_) => {}
+            Err(error) => errors.push(format!("failed to capture repository state: {error}")),
+        }
+    }
+
     errors.sort();
     errors.dedup();
     if errors.is_empty() {
         Ok(())
     } else {
         Err(ValidationErrors(errors))
+    }
+}
+
+fn worktree_fingerprint(root: &Path) -> Result<Vec<u8>, io::Error> {
+    let status = run_git(
+        root,
+        &["status", "--porcelain=v2", "-z", "--untracked-files=all"],
+    )?;
+    let tracked = run_git(root, &["ls-files", "--stage", "-z"])?;
+    let mut fingerprint = Vec::with_capacity(status.stdout.len() + tracked.stdout.len() + 16);
+    fingerprint.extend_from_slice(b"status\0");
+    fingerprint.extend_from_slice(&status.stdout);
+    fingerprint.extend_from_slice(b"tracked\0");
+    fingerprint.extend_from_slice(&tracked.stdout);
+    Ok(fingerprint)
+}
+
+fn run_git(root: &Path, arguments: &[&str]) -> Result<Output, io::Error> {
+    let output = Command::new("git")
+        .args(arguments)
+        .current_dir(root)
+        .output()?;
+    if output.status.success() {
+        Ok(output)
+    } else {
+        Err(io::Error::other(format!(
+            "git {} exited with {}: {}",
+            arguments.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim(),
+        )))
     }
 }
 
@@ -410,25 +469,20 @@ fn validate_markdown_links(
             continue;
         }
         let decoded = percent_decode(file_target);
-        match resolve_repository_path(root, path.parent().unwrap_or(root), &decoded) {
-            Ok(resolved) => match inspect_repository_path(root, &resolved) {
-                RepositoryPath::Exists(_) => {}
-                RepositoryPath::Escapes => {
-                    errors.push(format!("{relative}: link escapes repository: {raw_target}"))
-                }
-                RepositoryPath::Symlink => errors.push(format!(
-                    "{}: symbolic links are not permitted",
-                    relative_path(root, &resolved)
-                        .unwrap_or_else(|()| resolved.display().to_string())
-                )),
-                RepositoryPath::Missing => {
-                    errors.push(format!("{relative}: broken relative link: {raw_target}"))
-                }
-                RepositoryPath::Error(error) => errors.push(format!(
-                    "{relative}: failed to inspect relative link {raw_target}: {error}"
-                )),
-            },
-            Err(()) => errors.push(format!("{relative}: link escapes repository: {raw_target}")),
+        match resolve_markdown_link(root, path.parent().unwrap_or(root), &decoded) {
+            RepositoryPath::Exists(_) => {}
+            RepositoryPath::Escapes => {
+                errors.push(format!("{relative}: link escapes repository: {raw_target}"))
+            }
+            RepositoryPath::Symlink => errors.push(format!(
+                "{relative}: symbolic links are not permitted: {raw_target}"
+            )),
+            RepositoryPath::Missing => {
+                errors.push(format!("{relative}: broken relative link: {raw_target}"))
+            }
+            RepositoryPath::Error(error) => errors.push(format!(
+                "{relative}: failed to inspect relative link {raw_target}: {error}"
+            )),
         }
     }
 }
@@ -548,30 +602,81 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn resolve_repository_path(root: &Path, base: &Path, target: &str) -> Result<PathBuf, ()> {
+fn resolve_markdown_link(root: &Path, source_directory: &Path, target: &str) -> RepositoryPath {
     if target.starts_with('/')
+        || target.contains('\\')
         || target.starts_with("\\\\")
         || target.starts_with("//")
         || target.as_bytes().get(1) == Some(&b':')
     {
-        return Err(());
+        return RepositoryPath::Escapes;
     }
-    let base = base.strip_prefix(root).map_err(|_| ())?;
-    let candidate = base.join(target.replace('\\', "/"));
-    let mut normalized = PathBuf::new();
-    for component in candidate.components() {
-        match component {
-            Component::Prefix(_) | Component::RootDir => return Err(()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    return Err(());
-                }
+
+    let canonical_root = match root.canonicalize() {
+        Ok(root) => root,
+        Err(error) => return RepositoryPath::Error(error),
+    };
+    let mut current = match source_directory.canonicalize() {
+        Ok(directory) if directory.starts_with(&canonical_root) => directory,
+        Ok(_) => return RepositoryPath::Escapes,
+        Err(error) => return RepositoryPath::Error(error),
+    };
+    let components = target
+        .split('/')
+        .filter(|component| !component.is_empty() && *component != ".")
+        .collect::<Vec<_>>();
+
+    for (index, component) in components.iter().enumerate() {
+        if *component == ".." {
+            let Some(parent) = current.parent() else {
+                return RepositoryPath::Escapes;
+            };
+            if !parent.starts_with(&canonical_root) {
+                return RepositoryPath::Escapes;
             }
-            Component::Normal(segment) => normalized.push(segment),
+            current = parent.to_path_buf();
+            continue;
+        }
+
+        let candidate = current.join(component);
+        let metadata = match fs::symlink_metadata(&candidate) {
+            Ok(metadata) => metadata,
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound
+                    || error.kind() == io::ErrorKind::NotADirectory =>
+            {
+                return RepositoryPath::Missing;
+            }
+            Err(error) => return RepositoryPath::Error(error),
+        };
+        if metadata.file_type().is_symlink() {
+            return match candidate.canonicalize() {
+                Ok(destination) if destination.starts_with(&canonical_root) => {
+                    RepositoryPath::Symlink
+                }
+                Ok(_) => RepositoryPath::Escapes,
+                Err(_) => RepositoryPath::Symlink,
+            };
+        }
+
+        if index + 1 == components.len() {
+            return RepositoryPath::Exists(metadata);
+        }
+        if !metadata.is_dir() {
+            return RepositoryPath::Missing;
+        }
+        current = match candidate.canonicalize() {
+            Ok(directory) if directory.starts_with(&canonical_root) => directory,
+            Ok(_) => return RepositoryPath::Escapes,
+            Err(error) => return RepositoryPath::Error(error),
         }
     }
-    Ok(root.join(normalized))
+
+    match fs::symlink_metadata(&current) {
+        Ok(metadata) => RepositoryPath::Exists(metadata),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => RepositoryPath::Missing,
+        Err(error) => RepositoryPath::Error(error),
+    }
 }
 
 fn validate_file_inventories(root: &Path, errors: &mut Vec<String>) {
@@ -1017,4 +1122,44 @@ fn relative_path(root: &Path, path: &Path) -> Result<String, ()> {
         .to_str()
         .map(|path| path.replace('\\', "/"))
         .ok_or(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn repository_state_changes_between_snapshots_are_rejected() {
+        let root = std::env::temp_dir().join(format!(
+            "dornglut-validation-state-change-{}-{}",
+            std::process::id(),
+            TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let status = Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git init failed: {status}");
+        fs::write(root.join("tracked.md"), b"before\n").unwrap();
+        let status = Command::new("git")
+            .args(["add", "tracked.md"])
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git add failed: {status}");
+
+        let failure = validate_repository_with_after_snapshot(&root, || {
+            fs::write(root.join("tracked.md"), b"after\n").unwrap();
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(failure.contains("repository changed during validation"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }
