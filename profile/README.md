@@ -16,17 +16,17 @@ Repositories are separated by semantic ownership rather than gathered behind one
 - [RunenSDF](https://github.com/dornglut/runen-sdf) — host-neutral signed-field mathematics and deterministic CPU reference queries.
 - [RunenUI](https://github.com/dornglut/runen-ui) — host- and renderer-neutral UI framework with a deterministic pre-1.0 headless foundation.
 - [RunenNet](https://github.com/dornglut/runen-net) — engine-independent realtime multiplayer networking framework.
-- [RunenOnline](https://github.com/dornglut/runen-online) — provider-neutral online-game control-plane framework, separate from realtime networking.
+- [RunenOnline](https://github.com/dornglut/runen-online) — provisional pre-1.0, provider-neutral online-game control-plane framework, separate from realtime networking.
 - **RunenSpatial** — host-neutral spatial identities, addressing, indexing, deterministic demand, and availability control. The repository is currently private while standalone conformance, release policy, and Runenwerk cutover work are completed.
 
 ### Applications and experiments
 
 - [Werkstatt](https://github.com/dornglut/werkstatt) — experimental human-first engineering workbench for understanding, performing, reviewing, and coordinating software work across human and automated actors.
-- [Runen Lab](https://github.com/dornglut/runen-lab) — downstream experimental and showcase workspace for applications built on accepted Runen surfaces; it does not define framework semantics or canonical cross-framework integration.
+- [Runen Lab](https://github.com/dornglut/runen-lab) — planned downstream experimental and showcase workspace for applications built on accepted Runen surfaces; it does not define framework semantics or canonical cross-framework integration.
 
 ## Framework boundaries not yet standalone
 
-**RunenGPU, RunenRender, RunenECS, and RunenScheduler are not yet standalone framework authorities.** Their implementation and extraction authority remains with Runenwerk until the corresponding clean-cutover gates are completed.
+**RunenGPU, RunenRender, RunenECS, and RunenScheduler are not yet standalone framework authorities.** Their implementation and extraction authority remain with Runenwerk until the corresponding clean-cutover gates are completed.
 
 The public `dornglut/runen-ecs` repository currently reserves the namespace only; its existence does not represent a completed extraction, independently usable implementation, or stable public contract. Likewise, a planned framework or repository name does not by itself authorize source movement or imply maturity.
 
