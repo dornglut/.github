@@ -32,3 +32,5 @@ Planned framework repositories include RunenGPU, RunenRender, and RunenECS. A pl
 - reusable read-only CI orchestration lives in [Dornglut GitHub Workflows](https://github.com/dornglut/github-workflows).
 
 Historical owner paths may remain in explicit provenance records. Active work uses the `dornglut/*` namespace.
+
+<!-- atomic-multifile-canary: profile -->

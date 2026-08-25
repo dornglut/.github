@@ -27,3 +27,5 @@ cargo validate
 The current repository revision is licensed under the [Apache License 2.0](LICENSE) (`Apache-2.0`).
 
 Before this migration, no repository-wide `LICENSE` or `LICENSE.md` file was published in the inspected Git history. This migration therefore does not infer or reinterpret a repository-wide license grant for earlier revisions.
+
+<!-- atomic-multifile-canary: root -->
