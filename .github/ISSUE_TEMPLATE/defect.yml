@@ -1,12 +1,12 @@
 name: Defect
-description: Report reproducible behavior that violates an existing contract
+description: Report behavior that violates an existing contract
 title: "[Defect] "
 labels: []
 body:
   - type: markdown
     attributes:
       value: |
-        Report one reproducible defect in the repository that owns the behavior. Do not disclose vulnerabilities, credentials, or private data here.
+        Report one defect in the repository that owns the behavior. Provide reproduction steps when available or the smallest bounded occurrence evidence otherwise. Do not disclose vulnerabilities, credentials, or private data here.
   - type: input
     id: repository_revision
     attributes:
@@ -32,8 +32,8 @@ body:
   - type: textarea
     id: reproduction
     attributes:
-      label: Reproduction
-      description: Provide the smallest deterministic reproduction.
+      label: Reproduction or occurrence evidence
+      description: Provide the smallest reproduction you have. If deterministic reproduction is unavailable, describe triggering conditions, frequency, and known nondeterminism.
     validations:
       required: true
   - type: textarea
