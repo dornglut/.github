@@ -9,10 +9,8 @@ use std::process::{Command, ExitStatus, Output};
 
 const TEXT_SUFFIXES: &[&str] = &["json", "md", "py", "toml", "txt", "yaml", "yml"];
 const ACTIVE_REUSABLE_REVISION: &str = "624cb41adeed21a6461eb838bc7330bd0a5079fd";
-const DOCUMENTATION_TEMPLATE_REUSABLE_REVISION: &str =
-    "624cb41adeed21a6461eb838bc7330bd0a5079fd";
-const RUST_TEMPLATE_REUSABLE_REVISION: &str =
-    "718f53a5601f4fc89d8a8b1deab89550d36b70a9";
+const DOCUMENTATION_TEMPLATE_REUSABLE_REVISION: &str = "624cb41adeed21a6461eb838bc7330bd0a5079fd";
+const RUST_TEMPLATE_REUSABLE_REVISION: &str = "718f53a5601f4fc89d8a8b1deab89550d36b70a9";
 const REUSABLE_WORKFLOW_OWNER: &str = "dornglut/github-workflows/.github/workflows";
 const RETIRED_VALIDATOR_PATH: &str = "scripts/validate.py";
 
