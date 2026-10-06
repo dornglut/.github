@@ -8,7 +8,11 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 
 const TEXT_SUFFIXES: &[&str] = &["json", "md", "py", "toml", "txt", "yaml", "yml"];
-const REUSABLE_REVISION: &str = "624cb41adeed21a6461eb838bc7330bd0a5079fd";
+const ACTIVE_REUSABLE_REVISION: &str = "624cb41adeed21a6461eb838bc7330bd0a5079fd";
+const DOCUMENTATION_TEMPLATE_REUSABLE_REVISION: &str =
+    "624cb41adeed21a6461eb838bc7330bd0a5079fd";
+const RUST_TEMPLATE_REUSABLE_REVISION: &str =
+    "718f53a5601f4fc89d8a8b1deab89550d36b70a9";
 const REUSABLE_WORKFLOW_OWNER: &str = "dornglut/github-workflows/.github/workflows";
 const RETIRED_VALIDATOR_PATH: &str = "scripts/validate.py";
 
@@ -70,13 +74,14 @@ struct WorkflowContract {
     path: &'static str,
     branch: &'static str,
     reusable_workflow: &'static str,
+    reusable_revision: &'static str,
 }
 
 impl WorkflowContract {
     fn reusable_reference(self) -> String {
         format!(
-            "uses: {REUSABLE_WORKFLOW_OWNER}/{}@{REUSABLE_REVISION}",
-            self.reusable_workflow
+            "uses: {REUSABLE_WORKFLOW_OWNER}/{}@{}",
+            self.reusable_workflow, self.reusable_revision
         )
     }
 
@@ -102,16 +107,19 @@ const WORKFLOW_CONTRACTS: &[WorkflowContract] = &[
         path: ".github/workflows/validate.yml",
         branch: "main",
         reusable_workflow: "reusable-rust-cargo-validate.yml",
+        reusable_revision: ACTIVE_REUSABLE_REVISION,
     },
     WorkflowContract {
         path: "workflow-templates/documentation-validation.yml",
         branch: "$default-branch",
         reusable_workflow: "reusable-python-repository-validate.yml",
+        reusable_revision: DOCUMENTATION_TEMPLATE_REUSABLE_REVISION,
     },
     WorkflowContract {
         path: "workflow-templates/rust-validation.yml",
         branch: "$default-branch",
         reusable_workflow: "reusable-rust-cargo-validate.yml",
+        reusable_revision: RUST_TEMPLATE_REUSABLE_REVISION,
     },
 ];
 
