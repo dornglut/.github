@@ -40,9 +40,9 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include relevant platform, toolchain, configuration, and feature information.
+      description: Add platform, toolchain, configuration, or feature details when they matter to the defect. Leave blank if not applicable.
     validations:
-      required: true
+      required: false
   - type: textarea
     id: evidence
     attributes:

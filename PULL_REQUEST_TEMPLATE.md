@@ -1,49 +1,45 @@
-## Authority
+## Purpose and authority
 
 - Owning issue or decision:
-- Accepted implementation base, when relevant:
-- Reviewed feature head:
-- Synthetic merge-result revision, only when separately validated:
-- Accepted squash merge, after merge:
-- Accepted-main push revision or run, when required:
-
-## Outcome
-
-Describe the completed outcome and why it belongs in this repository.
+- Outcome (what changed and why):
 
 ## Scope
 
-### Included
+**Included:** [the bounded change]
 
--
+**Excluded:** [what remains unchanged or belongs to other work]
 
-### Excluded
+## Review and validation
 
--
+- Accepted implementation base, when relevant:
+- Exact reviewed feature-head commit:
+- Repository-owned validation command / CI run:
+- Result and remaining required evidence:
 
-## Validation
+Record actual completed checks with links and revision IDs. A planned, skipped,
+or unavailable check is not a pass. Moving the head requires new exact-head proof.
 
-```text
-command:
-revision:
-result:
-```
+## Impact (state "none" when genuinely not applicable)
 
-Record exact-head CI or other maintained evidence. State any intentionally deferred checks and their owner.
+- Public API, compatibility, or user-facing behavior:
+- Security, permissions, or data:
+- Migration, release, or affected consumers:
+- Documentation or organization-policy exceptions:
 
-## Impact
+## Review checks
 
-- Public API or compatibility:
-- Security or permissions:
-- Migration or release:
-- Documentation:
-- Repository profile or organization-policy exception:
+- [ ] The change has one coherent outcome and stays within accepted authority.
+- [ ] Relevant existing behavior, users, ownership, and dependency rules were examined.
+- [ ] New/changed documentation and actual behavior agree.
+- [ ] Required exact-head validation and appropriate review are satisfied before merge.
+- [ ] Unresolved findings and remaining work are visible, not disguised as completion.
 
-## Review checklist
+## After merge (only when required)
 
-- [ ] The diff has one coherent purpose.
-- [ ] Repository-local authority and ownership boundaries are preserved.
-- [ ] Active documentation matches the implementation.
-- [ ] Historical provenance was not rewritten as current authority.
-- [ ] Canonical validation passed on the reviewed head.
-- [ ] Remaining work has an explicit owner and is not hidden in this pull request.
+- Accepted squash merge commit:
+- Accepted-main push revision and validation:
+- Separately validated merge-result or merge-group revision, if applicable:
+
+These post-merge and integration references are **not** requirements to fill
+in when first opening a PR. Do not confuse a synthetic merge result with the
+actual reviewed feature head. Follow repository-local review and merge guards.
