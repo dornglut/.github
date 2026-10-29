@@ -58,7 +58,7 @@ body:
     attributes:
       label: Checks
       options:
-        - label: I searched existing issues, roadmaps, and decision records.
+        - label: I checked relevant existing issues, roadmaps, and decisions where applicable.
           required: true
         - label: This proposal is filed in the repository that owns the outcome.
           required: true
