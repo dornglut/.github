@@ -12,7 +12,7 @@
 ## Review and validation
 
 - Accepted implementation base, when relevant:
-- Exact reviewed feature-head commit:
+- Reviewed feature head:
 - Repository-owned validation command / CI run:
 - Result and remaining required evidence:
 
@@ -24,7 +24,8 @@ or unavailable check is not a pass. Moving the head requires new exact-head proo
 - Public API, compatibility, or user-facing behavior:
 - Security, permissions, or data:
 - Migration, release, or affected consumers:
-- Documentation or organization-policy exceptions:
+- Documentation:
+- Repository profile or organization-policy exception:
 
 ## Review checks
 
@@ -36,9 +37,9 @@ or unavailable check is not a pass. Moving the head requires new exact-head proo
 
 ## After merge (only when required)
 
-- Accepted squash merge commit:
-- Accepted-main push revision and validation:
-- Separately validated merge-result or merge-group revision, if applicable:
+- Accepted squash merge, after merge:
+- Accepted-main push revision or run, when required:
+- Synthetic merge-result revision, only when separately validated:
 
 These post-merge and integration references are **not** requirements to fill
 in when first opening a PR. Do not confuse a synthetic merge result with the
